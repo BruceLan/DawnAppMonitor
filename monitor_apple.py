@@ -930,13 +930,13 @@ def main():
     # ⚠️ 请替换为实际的群聊 ID 和用户 ID
     FEISHU_NOTIFICATIONS = [
         {
-            "chat_id": "oc_21fbcfe60694ec387bfca22241426871",  # 群1 - 替换为实际的群聊 ID
+            "chat_id": "oc_1de66c6e3d6dba470e302b2d474db39f",  # 群1 - 替换为实际的群聊 ID
             "mention_all": True  # @ 所有人
         },
         {
             "chat_id": "oc_26e985ac87884ce23bc1c181cf0f61dc",  # 群2 - 替换为实际的群聊 ID
             "mention_user_ids": [  # @ 多个用户（列表形式）
-                "ou_510b8e2d36f6330ef8dc917167bde9bf", # dengjiaxi
+                "ou_15d061852fd73da48d30f629bf6301ae", # yuxiaoling
                 "ou_3ce54c14f9ec3e6de326165614f4872d", # lanzhihong
                 "ou_135b706486fe7cdd5c715d05ff23177e", # chenwenhan 
                 "ou_162731495f6df9dfe218454ab39e0b26", # tangluoya 
