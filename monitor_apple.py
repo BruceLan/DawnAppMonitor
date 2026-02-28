@@ -344,7 +344,11 @@ class FeishuBitableMonitor:
         log_info(f"  找到 {len(main_apps)} 个主应用")
         
         # 步骤3: 查找每个主应用的所有子记录（版本记录）
+        # 只包含状态为"提审中"或"已发布"的子记录
         log_info("步骤3: 查找每个主应用的子记录（版本记录）...")
+        log_info("  子记录过滤条件: 包状态 = '提审中' 或 '已发布'")
+        valid_child_statuses = ["提审中", "已发布"]
+        
         for main_app in main_apps:
             children = []
             for raw_record in all_raw_records:
@@ -360,16 +364,32 @@ class FeishuBitableMonitor:
                             record_ids = item.get('record_ids', [])
                             # 确保 record_ids 不为 None
                             if record_ids and main_app.record_id in record_ids:
-                                # 这是当前主应用的子记录
-                                child_record = ApplePackageRecord.from_feishu_fields(
-                                    fields=fields,
-                                    record_id=raw_record['record_id']
-                                )
-                                children.append(child_record)
+                                # 这是当前主应用的子记录，检查状态
+                                child_status = None
+                                if status_field in fields:
+                                    status_value = fields[status_field]
+                                    if isinstance(status_value, list):
+                                        child_status = [str(item) for item in status_value]
+                                    else:
+                                        child_status = str(status_value)
+                                
+                                # 只添加状态为"提审中"或"已发布"的子记录
+                                status_valid = False
+                                if isinstance(child_status, list):
+                                    status_valid = any(s in valid_child_statuses for s in child_status)
+                                elif child_status:
+                                    status_valid = child_status in valid_child_statuses
+                                
+                                if status_valid:
+                                    child_record = ApplePackageRecord.from_feishu_fields(
+                                        fields=fields,
+                                        record_id=raw_record['record_id']
+                                    )
+                                    children.append(child_record)
                                 break
             
             main_app.children = children
-            log_info(f"  主应用 {main_app.package_name} (ID: {main_app.record_id}) 有 {len(children)} 条版本记录")
+            log_info(f"  主应用 {main_app.package_name} (ID: {main_app.record_id}) 有 {len(children)} 条有效版本记录")
         
         log_success(f"查询完成，共找到 {len(main_apps)} 个主应用及其版本记录")
         return main_apps
@@ -665,6 +685,97 @@ class FeishuBitableMonitor:
                 mention_all=mention_all,
                 mention_user_ids=mention_user_ids
             )
+    def send_warning_message(
+        self,
+        chat_id: str,
+        invalid_records: List[Tuple[ApplePackageRecord, List[str]]]
+    ) -> bool:
+        """
+        发送数据异常警告消息到飞书群聊
+
+        Args:
+            chat_id: 飞书群聊 ID
+            invalid_records: 异常记录列表，每个元素是 (record, errors) 元组
+
+        Returns:
+            发送是否成功
+        """
+        if not chat_id or not invalid_records:
+            return False
+
+        try:
+            # 构建警告消息内容
+            warning_lines = [
+                "⚠️ 数据异常警告",
+                "",
+                f"发现 {len(invalid_records)} 个应用存在数据问题，请及时修正：",
+                ""
+            ]
+
+            for idx, (record, errors) in enumerate(invalid_records, 1):
+                warning_lines.append(f"{idx}. {record.package_name}")
+                for error in errors:
+                    warning_lines.append(f"   - {error}")
+                if record.record_id:
+                    warning_lines.append(f"   - 记录ID: {record.record_id}")
+                warning_lines.append("")
+
+            warning_lines.append("请相关研发人员检查并补充完整信息。")
+
+            message_text = "\n".join(warning_lines)
+
+            # 构建富文本消息内容（@ 所有人）
+            content_parts = [
+                {
+                    "tag": "at",
+                    "user_id": "all"
+                },
+                {
+                    "tag": "text",
+                    "text": " \n" + message_text
+                }
+            ]
+
+            # 构建消息内容
+            content = json.dumps({
+                "zh_cn": {
+                    "title": "",
+                    "content": [content_parts]
+                }
+            }, ensure_ascii=False)
+
+            # 生成唯一的 UUID
+            message_uuid = str(uuid.uuid4())
+
+            # 构建请求
+            request = CreateMessageRequest.builder() \
+                .receive_id_type("chat_id") \
+                .request_body(
+                    CreateMessageRequestBody.builder()
+                    .receive_id(chat_id)
+                    .msg_type("post")
+                    .content(content)
+                    .uuid(message_uuid)
+                    .build()
+                ) \
+                .build()
+
+            # 发送消息
+            response = self.client.im.v1.message.create(request)
+
+            if response.success():
+                log_success(f"数据异常警告发送成功 (@所有人)")
+                return True
+            else:
+                log_error("数据异常警告发送失败")
+                log_info(f"  错误码: {response.code}")
+                log_info(f"  错误信息: {response.msg}")
+                return False
+
+        except Exception as e:
+            log_error(f"发送数据异常警告异常: {str(e)}")
+            return False
+
     
     def update_app_status(
         self,
@@ -829,11 +940,6 @@ def main():
     APP_SECRET = os.getenv("FEISHU_APP_SECRET")
     WIKI_URL = os.getenv("FEISHU_WIKI_URL")
 
-    # APP_ID = "cli_a9ccfb2bbf385cc6"
-    # APP_SECRET = "4RrEVRd6jXTBrPbOxncNEbprT34AloaH"
-    # WIKI_URL = "https://la1a59fdywl.feishu.cn/wiki/Nzmew2Przi0hQAkgbGHcTCvfn3c?fromScene=spaceOverview&table=tblburubNacfxW79&view=vewGZJS1AM"
-    
-
     if not APP_ID or not APP_SECRET or not WIKI_URL:
         log_error("缺少必要的环境变量")
         log_info("请设置以下环境变量：")
@@ -912,19 +1018,59 @@ def main():
     log_info(f"过滤后: {len(filtered_records)} 个主应用（阶段 != '五图'）")
     log_endgroup()
     
-    # 计算并显示每个记录的最新版本
-    log_group("📦 步骤 5: 计算最新版本")
-    for record in filtered_records:
-        latest_version = record.get_latest_version()
-        if record.children:
-            log_info(f"{record.package_name}: 最新版本 = {latest_version} (来自子记录)")
-        else:
-            log_info(f"{record.package_name}: 最新版本 = {latest_version} (主记录)")
-    log_endgroup()
+    # 数据验证：分离有效记录和异常记录
+    log_group("📦 步骤 5: 数据验证")
+    valid_records = []
+    invalid_records = []
     
-    # 查询每个 Apple ID 对应的版本，判断是否上线并更新状态
-    log_group("🍎 步骤 6: 查询 Apple Store 状态并更新")
-    log_info("只显示指定版本已上线的应用")
+    for record in filtered_records:
+        validation_result = record.validate_data()
+        
+        if validation_result['is_valid']:
+            valid_records.append(record)
+            latest_version = record.get_latest_version()
+            
+            # 调试信息：打印子记录详情
+            if record.children:
+                log_info(f"✅ {record.package_name}: 最新版本 = {latest_version} (来自子记录)")
+                log_info(f"  父记录版本: {record.version}")
+                log_info(f"  子记录数量: {len(record.children)}")
+                for idx, child in enumerate(record.children, 1):
+                    log_info(f"    子记录{idx}: 版本={child.version}, 提审时间={child.submission_time}")
+            else:
+                log_info(f"✅ {record.package_name}: 最新版本 = {latest_version} (主记录)")
+        else:
+            invalid_records.append((record, validation_result['errors']))
+            log_warning(f"❌ {record.package_name}: 数据异常")
+            for error in validation_result['errors']:
+                log_warning(f"  - {error}")
+    
+    log_info(f"\n数据验证结果：")
+    log_info(f"  有效记录: {len(valid_records)} 个")
+    log_info(f"  异常记录: {len(invalid_records)} 个")
+    
+    # 打印异常记录详细信息
+    if invalid_records:
+        log_info(f"\n异常记录详情：")
+        for idx, (record, errors) in enumerate(invalid_records, 1):
+            log_warning(f"  [{idx}] {record.package_name} (Record ID: {record.record_id})")
+            for error in errors:
+                log_warning(f"      - {error}")
+            if record.children:
+                log_info(f"      子记录数量: {len(record.children)}")
+                for child_idx, child in enumerate(record.children, 1):
+                    # 格式化提审时间
+                    submission_time_str = "无"
+                    if child.submission_time:
+                        try:
+                            dt = datetime.fromtimestamp(child.submission_time / 1000)
+                            submission_time_str = dt.strftime('%Y-%m-%d')
+                        except:
+                            submission_time_str = str(child.submission_time)
+                    
+                    log_info(f"        子记录{child_idx}: 版本={child.version}, 状态={child.package_status}, 提审时间={submission_time_str}, ID={child.record_id}")
+    
+    log_endgroup()
     
     # 飞书通知配置（支持多个群，每个群可以配置不同的 @ 规则）
     # ⚠️ 请替换为实际的群聊 ID 和用户 ID
@@ -947,6 +1093,29 @@ def main():
         }
     ]
     
+    # 发送异常记录警告（调试期间暂时注释）
+    if invalid_records:
+        log_group("⚠️  步骤 6: 发送数据异常警告")
+        # 找到配置了 mention_all = True 的群聊
+        warning_chat_id = None
+        for config in FEISHU_NOTIFICATIONS:
+            if config.get("mention_all"):
+                warning_chat_id = config.get("chat_id")
+                break
+        
+        if warning_chat_id:
+            monitor.send_warning_message(
+                chat_id=warning_chat_id,
+                invalid_records=invalid_records
+            )
+        else:
+            log_warning("未找到配置 mention_all=True 的群聊，跳过发送警告")
+        log_endgroup()
+    
+    # 查询每个 Apple ID 对应的版本，判断是否上线并更新状态（只处理有效记录）
+    log_group("🍎 步骤 7: 查询 Apple Store 状态并更新")
+    log_info(f"只处理有效记录（共 {len(valid_records)} 个）")
+    
     # 获取当前时间戳（毫秒）
     current_timestamp = int(datetime.now().timestamp() * 1000)
     
@@ -954,8 +1123,7 @@ def main():
     success_count = 0
     skip_count = 0
     
-    for record in filtered_records:
-
+    for record in valid_records:
         if not record.apple_id:
             log_warning(f"{record.package_name} - 没有 Apple ID，跳过")
             skip_count += 1
@@ -971,25 +1139,15 @@ def main():
         # 查询 Apple Store 状态
         app_status = monitor.query_apple_app_status(record.apple_id, verbose=False)
         
-        isSelectVersionOnline = False
-
+        # 判断版本是否已上线
+        is_version_online = False
         if app_status and app_status['is_online']:
             store_version = app_status['version']
-            
-            # 只有当 Store 版本与本地最新版本匹配时，才处理
             if store_version and store_version == local_latest_version:
-                isSelectVersionOnline = True;
-
-                
-                # 发送飞书通知到多个群聊
-                # monitor.send_notifications(
-                #     notifications=FEISHU_NOTIFICATIONS,
-                #     app_name=record.package_name,
-                #     stage=record.stage or "未知",
-                #     version=local_latest_version
-                # )
-             
-        if isSelectVersionOnline:
+                is_version_online = True
+        
+        # 处理已上线的应用
+        if is_version_online:
             log_success(f"{record.package_name} - 指定版本已上线")
             log_info(f"  📱 应用名称: {app_status['track_name']}")
             log_info(f"  📦 版本号: {store_version} (本地最新版本: {local_latest_version})")
@@ -998,7 +1156,7 @@ def main():
             log_info(f"  🔄 当前版本发布日期: {app_status['current_version_release_date']}")
             if app_status.get('track_view_url'):
                 log_info(f"  🔗 应用链接: {app_status['track_view_url']}")
-                
+            
             # 更新飞书表格状态
             monitor.update_app_status(
                 app_token=app_token,
@@ -1007,8 +1165,8 @@ def main():
                 latest_version=local_latest_version,
                 current_date_timestamp=current_timestamp
             )
-
-            # 发送飞书通知到多个群聊
+            
+            # 发送飞书通知到多个群聊（调试期间暂时注释）
             monitor.send_notifications(
                 notifications=FEISHU_NOTIFICATIONS,
                 app_name=record.package_name,
@@ -1017,6 +1175,7 @@ def main():
             )
             success_count += 1
         else:
+            # 未上线的应用
             log_info(f"{record.package_name} - 指定版本未上线")
             log_info(f"  📱 应用名称: {record.package_name}")
             log_info(f"  📦 版本号: {local_latest_version}")
@@ -1026,14 +1185,16 @@ def main():
     
     # 打印任务总结
     log_group("📊 任务执行总结")
-    log_info(f"总共检查: {len(filtered_records)} 个应用")
+    log_info(f"总共筛选: {len(filtered_records)} 个应用")
+    log_info(f"有效记录: {len(valid_records)} 个")
+    log_info(f"异常记录: {len(invalid_records)} 个")
     log_info(f"成功上线: {success_count} 个")
     log_info(f"跳过处理: {skip_count} 个")
-    log_info(f"等待上线: {len(filtered_records) - success_count - skip_count} 个")
+    log_info(f"等待上线: {len(valid_records) - success_count - skip_count} 个")
     log_info(f"完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     log_endgroup()
     
-    return filtered_records
+    return valid_records
 
 
 if __name__ == "__main__":

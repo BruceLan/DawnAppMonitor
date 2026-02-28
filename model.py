@@ -5,6 +5,7 @@
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+from packaging import version
 
 
 @dataclass
@@ -227,7 +228,7 @@ class ApplePackageRecord:
         
         规则：
         1. 如果没有子记录，最新版本为：版本号
-        2. 如果有子记录，最新版本为：提审时间最新的那条子记录的版本号
+        2. 如果有子记录，最新版本为：版本号最大的那条子记录的版本号
         
         Returns:
             最新版本号
@@ -236,19 +237,76 @@ class ApplePackageRecord:
             # 没有子记录，返回自己的版本号
             return self.version
         
-        # 有子记录，找到提审时间最新的子记录
+        # 有子记录，找到版本号最大的子记录
         latest_child = None
-        latest_time = 0
+        latest_version = None
         
         for child in self.children:
-            if child.submission_time and child.submission_time > latest_time:
-                latest_time = child.submission_time
-                latest_child = child
+            if not child.version:
+                continue
+            
+            try:
+                # 使用 packaging.version 进行版本号比较
+                child_version = version.parse(child.version)
+                
+                if latest_version is None or child_version > latest_version:
+                    latest_version = child_version
+                    latest_child = child
+            except Exception:
+                # 如果版本号格式不规范，跳过该子记录
+                continue
         
-        # 如果找到了有提审时间的子记录，返回其版本号
+        # 如果找到了有效版本号的子记录，返回其版本号
         if latest_child and latest_child.version:
             return latest_child.version
         
-        # 如果没有找到有提审时间的子记录，返回自己的版本号
+        # 如果没有找到有效版本号的子记录，返回自己的版本号
         return self.version
+
+    def validate_data(self) -> Dict[str, Any]:
+        """
+        验证记录数据的完整性
+
+        Returns:
+            验证结果字典：
+            {
+                'is_valid': bool,  # 是否有效
+                'errors': List[str]  # 错误信息列表
+            }
+        """
+        errors = []
+
+        if not self.children:
+            # 没有子记录的情况
+            if not self.version:
+                errors.append("缺少版本号")
+            if not self.submission_time:
+                errors.append("缺少提审时间")
+        else:
+            # 有子记录的情况
+            # 检查是否所有子记录都没有版本号
+            versions_with_value = [child.version for child in self.children if child.version]
+            if not versions_with_value:
+                errors.append(f"所有子记录（共{len(self.children)}条）都缺少版本号")
+            else:
+                # 检查是否有重复的版本号
+                version_counts = {}
+                for child in self.children:
+                    if child.version:
+                        version_counts[child.version] = version_counts.get(child.version, 0) + 1
+
+                duplicate_versions = {v: count for v, count in version_counts.items() if count > 1}
+                if duplicate_versions:
+                    for ver, count in duplicate_versions.items():
+                        errors.append(f"{count}条子记录版本号相同 ({ver})")
+
+            # 检查是否所有子记录都没有提审时间
+            submission_times_with_value = [child.submission_time for child in self.children if child.submission_time]
+            if not submission_times_with_value:
+                errors.append(f"所有子记录（共{len(self.children)}条）都缺少提审时间")
+
+        return {
+            'is_valid': len(errors) == 0,
+            'errors': errors
+        }
 
