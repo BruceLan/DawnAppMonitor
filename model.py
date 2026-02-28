@@ -284,26 +284,28 @@ class ApplePackageRecord:
                 errors.append("缺少提审时间")
         else:
             # 有子记录的情况
-            # 检查是否所有子记录都没有版本号
-            versions_with_value = [child.version for child in self.children if child.version]
-            if not versions_with_value:
-                errors.append(f"所有子记录（共{len(self.children)}条）都缺少版本号")
-            else:
-                # 检查是否有重复的版本号
-                version_counts = {}
-                for child in self.children:
-                    if child.version:
-                        version_counts[child.version] = version_counts.get(child.version, 0) + 1
-
-                duplicate_versions = {v: count for v, count in version_counts.items() if count > 1}
-                if duplicate_versions:
-                    for ver, count in duplicate_versions.items():
-                        errors.append(f"{count}条子记录版本号相同 ({ver})")
-
-            # 检查是否所有子记录都没有提审时间
-            submission_times_with_value = [child.submission_time for child in self.children if child.submission_time]
-            if not submission_times_with_value:
-                errors.append(f"所有子记录（共{len(self.children)}条）都缺少提审时间")
+            # 检查版本号
+            # 1. 检查是否有子记录缺少版本号
+            children_without_version = [child for child in self.children if not child.version]
+            if children_without_version:
+                errors.append(f"{len(children_without_version)}条子记录缺少版本号")
+            
+            # 2. 检查是否有重复的版本号
+            version_counts = {}
+            for child in self.children:
+                if child.version:
+                    version_counts[child.version] = version_counts.get(child.version, 0) + 1
+            
+            duplicate_versions = {v: count for v, count in version_counts.items() if count > 1}
+            if duplicate_versions:
+                for ver, count in duplicate_versions.items():
+                    errors.append(f"{count}条子记录版本号相同 ({ver})")
+            
+            # 检查提审时间
+            # 检查是否有子记录缺少提审时间
+            children_without_time = [child for child in self.children if not child.submission_time]
+            if children_without_time:
+                errors.append(f"{len(children_without_time)}条子记录缺少提审时间")
 
         return {
             'is_valid': len(errors) == 0,
