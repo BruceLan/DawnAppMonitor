@@ -1,214 +1,333 @@
 # 配置说明
 
+本文档详细说明了 Apple 应用监控系统的所有配置项。
+
 ## 环境变量配置
 
-### 必需的环境变量
+### 必需配置
 
-| 变量名 | 说明 | 如何获取 |
-|--------|------|----------|
-| `FEISHU_APP_ID` | 飞书应用 ID | 飞书开放平台 -> 应用详情 -> 凭证与基础信息 |
-| `FEISHU_APP_SECRET` | 飞书应用密钥 | 飞书开放平台 -> 应用详情 -> 凭证与基础信息 |
-| `FEISHU_WIKI_URL` | 多维表格 URL | 打开飞书多维表格，复制浏览器地址栏 URL |
+| 变量名 | 说明 | 示例值 |
+|--------|------|--------|
+| `ENV` | 环境标识 | `local` 或 `production` |
+| `FEISHU_APP_ID` | 飞书应用 ID | `cli_a9ccfb2bbf385cc6` |
+| `FEISHU_APP_SECRET` | 飞书应用密钥 | `your_secret_here` |
+| `FEISHU_WIKI_URL` | 飞书多维表格 Wiki URL | `https://xxx.feishu.cn/wiki/...` |
 
-### 本地开发配置
+**ENV 说明：**
+- `local`：本地调试模式，不发送飞书通知，适合开发测试
+- `production`：生产环境，发送飞书通知，适合正式运行
 
-1. 复制 `.env.example` 为 `.env`：
-   ```bash
-   cp .env.example .env
-   ```
+### 可选配置（飞书通知）
 
-2. 编辑 `.env` 文件，填入实际值：
-   ```bash
-   FEISHU_APP_ID=cli_your_actual_app_id
-   FEISHU_APP_SECRET=your_actual_secret
-   FEISHU_WIKI_URL=https://your_actual_wiki_url
-   ```
+**注意：** 当 `ENV=local` 时，以下配置不生效（不发送通知）
 
-3. 使用 python-dotenv 加载环境变量（可选）：
-   ```bash
-   pip install python-dotenv
-   ```
+| 变量名 | 说明 | 示例值 |
+|--------|------|--------|
+| `FEISHU_CHAT_ID_ALL` | @所有人的群聊 ID | `oc_1de66c6e3d6dba470e302b2d474db39f` |
+| `FEISHU_CHAT_ID_TEAM` | @指定用户的群聊 ID | `oc_26e985ac87884ce23bc1c181cf0f61dc` |
+| `FEISHU_MENTION_USERS` | 要 @ 的用户 ID 列表（逗号分隔） | `ou_aaa,ou_bbb,ou_ccc` |
+| `FEISHU_MESSAGE_PREFIX` | 飞书消息统一前缀（可选，空则不加） | `[正式环境]` |
 
-   在代码中添加：
-   ```python
-   from dotenv import load_dotenv
-   load_dotenv()
-   ```
+## 配置文件位置
 
-### GitHub Actions 配置
+### 本地开发
 
-在 GitHub 仓库中配置 Secrets（不要提交到代码仓库）：
+创建 `.env` 文件在项目根目录：
 
-1. 进入仓库 **Settings** -> **Secrets and variables** -> **Actions**
-2. 点击 **New repository secret**
-3. 添加上述三个环境变量
-
-## 通知配置
-
-### 群聊 ID 获取方法
-
-**方法 1：通过飞书开放平台**
-1. 打开飞书群聊
-2. 点击右上角「...」->「设置」
-3. 在群设置中可以看到群 ID
-
-**方法 2：通过 API 获取**
-```python
-# 使用飞书 SDK 获取群列表
-from lark_oapi.api.im.v1 import ListChatRequest
-
-request = ListChatRequest.builder().build()
-response = client.im.v1.chat.list(request)
-for chat in response.data.items:
-    print(f"群名称: {chat.name}, 群ID: {chat.chat_id}")
+```bash
+# 复制模板
+cp .env.example .env
 ```
 
-### 用户 open_id 获取方法
+编辑 `.env` 文件：
 
-**方法 1：通过飞书管理后台**
-1. 登录飞书管理后台
-2. 进入「通讯录」
-3. 找到对应用户，查看详情
+```bash
+# 本地调试模式（不发送飞书通知）
+ENV=local
 
-**方法 2：通过 API 获取**
-```python
-# 使用飞书 SDK 获取用户信息
-from lark_oapi.api.contact.v3 import GetUserRequest
+# 飞书应用配置
+FEISHU_APP_ID=cli_a9ccfb2bbf385cc6
+FEISHU_APP_SECRET=your_secret_here
+FEISHU_WIKI_URL=https://xxx.feishu.cn/wiki/...
 
-request = GetUserRequest.builder().user_id("user_id").build()
-response = client.contact.v3.user.get(request)
-print(f"用户 open_id: {response.data.user.open_id}")
+# 本地调试时可以不配置通知
+# FEISHU_CHAT_ID_ALL=oc_xxx
+# FEISHU_CHAT_ID_TEAM=oc_yyy
+# FEISHU_MENTION_USERS=ou_aaa,ou_bbb,ou_ccc
+# FEISHU_MESSAGE_PREFIX=[正式环境]
 ```
 
-### 通知配置示例
+### GitHub Actions
 
-编辑 `monitor_apple.py` 中的 `FEISHU_NOTIFICATIONS`：
+在 GitHub 仓库中配置 Secrets：
+
+1. 进入仓库 Settings -> Secrets and variables -> Actions
+2. 点击 "New repository secret" 添加密钥
+
+**注意：** GitHub Actions 默认为生产环境（`ENV=production`），会发送飞书通知。
+
+## 配置管理（config/settings.py）
+
+配置类 `Settings` 负责加载和管理所有配置：
 
 ```python
-FEISHU_NOTIFICATIONS = [
-    # 配置 1：@ 所有人
-    {
-        "chat_id": "oc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-        "mention_all": True
-    },
-    
-    # 配置 2：@ 单个用户
-    {
-        "chat_id": "oc_yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
-        "mention_user_ids": ["ou_xxxxxxxxxxxxxxxxxxxxxxxx"]
-    },
-    
-    # 配置 3：@ 多个用户
-    {
-        "chat_id": "oc_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
-        "mention_user_ids": [
-            "ou_user1_xxxxxxxxxxxxxxxx",
-            "ou_user2_xxxxxxxxxxxxxxxx",
-            "ou_user3_xxxxxxxxxxxxxxxx"
-        ]
-    },
-    
-    # 配置 4：不 @ 任何人（普通消息）
-    {
-        "chat_id": "oc_wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww"
-    }
-]
+from config.settings import settings
+
+# 访问配置
+app_id = settings.FEISHU_APP_ID
+notifications = settings.FEISHU_NOTIFICATIONS
+message_prefix = settings.FEISHU_MESSAGE_PREFIX
+
+# 验证配置
+if settings.validate():
+    print("配置有效")
 ```
 
-## 安全建议
+### 通知配置结构
 
-### ⚠️ 重要：不要泄露敏感信息
+`FEISHU_NOTIFICATIONS` 是一个列表，每个元素包含：
 
-1. **永远不要**将以下信息提交到 Git 仓库：
-   - `FEISHU_APP_ID`
-   - `FEISHU_APP_SECRET`
-   - 群聊 ID
-   - 用户 open_id
-   - `.env` 文件
+```python
+{
+    "chat_id": "oc_xxx",              # 群聊 ID（必需）
+    "mention_all": True,              # 是否 @ 所有人（可选）
+    "mention_user_ids": ["ou_xxx"]    # 要 @ 的用户列表（可选）
+}
+```
 
-2. **使用 .gitignore**
-   确保 `.gitignore` 包含：
-   ```
-   .env
-   .env.local
-   *.log
-   ```
+## 飞书应用配置
 
-3. **使用 GitHub Secrets**
-   - 在 GitHub 上使用 Secrets 存储敏感信息
-   - Secrets 不会出现在日志中
-   - 只有仓库管理员可以查看
+### 1. 创建飞书应用
 
-4. **定期更新密钥**
-   - 定期在飞书开放平台重置应用密钥
-   - 更新 GitHub Secrets 中的值
+1. 访问 [飞书开放平台](https://open.feishu.cn/)
+2. 创建企业自建应用
+3. 获取 App ID 和 App Secret
 
-## 权限配置
+### 2. 配置权限
 
-### 飞书应用权限
+在应用管理页面添加以下权限：
 
-确保应用拥有以下权限：
+- `bitable:app` - 查看、编辑多维表格
+- `wiki:space` - 访问知识库
+- `im:message` - 发送消息
 
-| 权限 | 权限名称 | 用途 |
-|------|---------|------|
-| `bitable:app` | 查看、编辑多维表格 | 读取和更新表格数据 |
-| `wiki:space` | 访问知识库 | 获取多维表格的 app_token |
-| `im:message` | 发送消息 | 发送群聊通知 |
-
-### 添加应用到群聊
+### 3. 添加应用到群聊
 
 1. 打开飞书群聊
 2. 点击右上角「...」->「设置」
 3. 找到「群机器人」->「添加机器人」
-4. 搜索你的应用名称
-5. 添加到群聊
+4. 搜索并添加你的应用
 
-### 添加应用到多维表格
+### 4. 添加应用为多维表格协作者
 
 1. 打开飞书多维表格
-2. 点击右上角「分享」
-3. 在「添加协作者」中搜索你的应用
-4. 设置权限为「可编辑」
+2. 点击右上角「...」->「高级设置」或「协作者」
+3. 搜索并添加你的应用
+4. 确保权限设置为「可编辑」
+
+## 获取群聊 ID 和用户 ID
+
+### 获取群聊 ID
+
+方法 1：通过群设置
+1. 打开飞书群聊
+2. 点击右上角「...」->「设置」
+3. 在 URL 中可以看到群聊 ID（格式：`oc_xxx`）
+
+方法 2：通过开发者工具
+1. 使用飞书 API 获取群列表
+2. 查找对应群聊的 `chat_id`
+
+### 获取用户 ID
+
+方法 1：通过用户信息
+1. 在飞书中打开用户个人资料
+2. 使用飞书 API 查询用户信息
+
+方法 2：通过开发者工具
+1. 使用飞书 API 获取部门用户列表
+2. 查找对应用户的 `open_id`
+
+## 业务规则配置
+
+当前实现把规则拆成两条独立流程：
+
+1. `App 是否上线` 监控
+2. `项目管理记录审查`
+
+核心入口不再是旧的 `get_records_by_status()` 或统一 `validate_data()`，而是：
+
+- `services/feishu_service.py` 的 `get_grouped_records()`：读取视图内记录并构建父子分组
+- `monitor_apple.py` 的 `AppleMonitor.evaluate_records()`：把记录拆分为“审查告警”和“上线监控候选”
+- `models/record.py` 的规则方法：
+  - `resolve_current_submission_record()`
+  - `review_parent_snapshot()`
+  - `review_current_submission()`
+  - `should_monitor_online()`
+
+### 当前规则
+
+**1. 当前发包流水选择**
+
+- 两条流程都只处理“审核中的记录”
+- 单记录模式：记录本身 `包状态 = 提审中` 时，记录本身就是当前流水
+- 父子模式：父记录快照 `包状态 = 提审中` 时，记录组才进入处理范围
+- 在已进入处理范围的父子组里，只在子记录里选择 `包状态 = 提审中` 的记录
+- 当存在多条提审中子记录时，按 `提审时间` 倒序、`版本号` 倒序选出当前流水
+
+**2. Apple 上线监控**
+
+- 只对“当前流水”做 Apple 监控
+- `阶段 = 五图`：跳过 Apple 上线监控
+- 非 `五图`：要求具备 `Apple ID + 版本号`
+- 项目管理审查告警不会自动阻断 Apple 监控；只有缺少监控必需字段时才会跳过
+
+**3. 项目管理记录审查**
+
+- 父记录是“应用快照”
+- 父记录必须填写最新 `阶段` 和 `包状态`
+- 父记录不应填写 `提审时间`
+- 父记录快照异常会先告警，再自动同步 `阶段/包状态`，并自动清空父记录 `提审时间`
+- 如果父记录是 `提审中`，但没有任何 `提审中` 子记录，会触发审查告警
+- 当前流水记录：
+  - `五图`：要求有 `提审时间`，不要求 `版本号`
+  - 非 `五图`：要求有 `提审时间` 和 `版本号`
+
+### 自定义规则
+
+如需调整规则，优先修改以下方法：
+
+```python
+class ApplePackageRecord:
+    def resolve_current_submission_record(self):
+        """定义如何选出当前要关注的发包流水"""
+
+    def review_parent_snapshot(self, current_record=None):
+        """定义父记录（应用快照）的审查规则"""
+
+    def review_current_submission(self):
+        """定义当前流水的审查规则"""
+
+    def should_monitor_online(self):
+        """定义哪些记录需要进入 Apple 上线监控"""
+```
+
+`validate_data()` 和 `get_latest_version()` 目前仅保留为兼容旧调用的包装方法，不建议作为新的扩展入口。
+
+## 日志配置
+
+日志工具在 `utils/logger.py` 中定义，支持：
+
+- GitHub Actions 日志分组
+- 不同级别的日志（info, warning, error, success）
+- 时间戳自动添加
+
+### 使用日志
+
+```python
+from utils.logger import log_info, log_warning, log_error, log_success
+
+log_info("信息日志")
+log_warning("警告日志")
+log_error("错误日志")
+log_success("成功日志")
+```
+
+## 高级配置
+
+### 修改父子分组字段
+
+如果表里“父记录”字段改名，可以调整 `get_grouped_records()` 的 `parent_field`：
+
+```python
+records = self.feishu_service.get_grouped_records(
+    app_token=app_token,
+    table_id=table_id,
+    view_id=view_id,
+    parent_field="父记录",  # 改成你自己的关联字段名
+)
+```
+
+### 修改当前流水选择规则
+
+编辑 `models/record.py` 中的 `resolve_current_submission_record()`：
+
+```python
+return sorted(
+    candidates,
+    key=lambda record: (
+        record.submission_time or 0,
+        self._safe_version(record.version),
+        record.record_id or "",
+    ),
+    reverse=True,
+)[0]
+```
+
+### 修改项目管理审查规则
+
+编辑 `models/record.py` 中的 `review_parent_snapshot()` 和 `review_current_submission()`：
+
+```python
+def review_parent_snapshot(self, current_record=None):
+    errors = []
+
+    if self.submission_time:
+        errors.append("父记录不应填写提审时间")
+    if not self.package_status:
+        errors.append("父记录缺少包状态")
+    if current_record and self.package_status != current_record.package_status:
+        errors.append("父记录包状态未同步最新状态")
+
+    return {"is_valid": len(errors) == 0, "errors": errors}
+```
+
+### 修改 Apple 监控条件
+
+如果要调整哪些记录进入 Apple 监控，优先改两个位置：
+
+```python
+def should_monitor_online(self):
+    return self.stage != "五图"
+```
+
+```python
+apple_id = current_record.resolve_monitor_apple_id(record)
+if not apple_id:
+    online_errors.append("缺少 Apple ID，无法监控上线")
+if not current_record.version:
+    online_errors.append("缺少版本号，无法监控上线")
+```
 
 ## 故障排查
 
-### 环境变量未设置
+### 配置验证失败
 
-**错误信息：**
-```
-❌ 错误：缺少必要的环境变量
-```
+运行以下命令检查配置：
 
-**解决方法：**
-- 本地运行：检查 `.env` 文件或 `export` 命令
-- GitHub Actions：检查 Secrets 配置
+```python
+from config.settings import settings
 
-### 权限不足
-
-**错误码：91403**
-```
-❌ 更新失败: Record ID xxx, 错误: 91403, Forbidden
+if settings.validate():
+    print("✅ 配置有效")
+    print(f"App ID: {settings.FEISHU_APP_ID}")
+    print(f"通知配置: {len(settings.FEISHU_NOTIFICATIONS)} 个群")
+else:
+    print("❌ 配置无效，请检查环境变量")
 ```
 
-**解决方法：**
-- 确保应用已添加到多维表格
-- 确保应用权限为「可编辑」
+### 权限问题
 
-**错误码：230002**
-```
-❌ 飞书消息发送失败, 错误码: 230002
-```
+如果遇到权限错误，检查：
 
-**解决方法：**
-- 确保应用已添加到目标群聊
+1. 飞书开放平台是否已添加所需权限
+2. 应用是否已添加到目标群聊
+3. 应用是否已添加为多维表格协作者
 
-### 字段不存在
+### 环境变量未生效
 
-**错误码：1254045**
-```
-❌ 更新失败: 错误码: 1254045, FieldNameNotFound
-```
+确保：
 
-**解决方法：**
-- 检查字段名称是否正确（"包状态"、"过审时间"）
-- 确保多维表格中存在这些字段
+1. `.env` 文件在项目根目录
+2. 环境变量名称正确（区分大小写）
+3. 重启应用以加载新的环境变量
