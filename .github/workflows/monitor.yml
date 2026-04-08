@@ -31,6 +31,10 @@ jobs:
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
           FEISHU_WIKI_URL: ${{ secrets.FEISHU_WIKI_URL }}
+          FEISHU_CHAT_ID_ALL: ${{ secrets.FEISHU_CHAT_ID_ALL }}
+          FEISHU_CHAT_ID_TEAM: ${{ secrets.FEISHU_CHAT_ID_TEAM }}
+          FEISHU_MENTION_USERS: ${{ secrets.FEISHU_MENTION_USERS }}
+          FEISHU_MESSAGE_PREFIX: ${{ secrets.FEISHU_MESSAGE_PREFIX }}
         run: |
           python monitor_apple.py
       
