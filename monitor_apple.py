@@ -47,11 +47,13 @@ class AppleMonitor:
         self.apple_service = apple_service
 
     def evaluate_records(
-        self, records: List[ApplePackageRecord]
+        self,
+        records: List[ApplePackageRecord],
+        enable_record_review: bool = False,
     ) -> Tuple[List[MonitorCandidate], List[Tuple[ApplePackageRecord, List[str]]]]:
         """
         解析当前记录，并拆分出：
-        1. 项目管理记录审查问题
+        1. 可选的项目管理记录审查问题
         2. Apple 上线监控候选
         """
         monitor_candidates: List[MonitorCandidate] = []
@@ -63,17 +65,18 @@ class AppleMonitor:
 
             current_record = record.resolve_current_submission_record()
             if record.children and not current_record:
-                parent_review = record.review_parent_snapshot()
-                if not parent_review["is_valid"]:
-                    review_issues.append((record, parent_review["errors"]))
+                if enable_record_review:
+                    parent_review = record.review_parent_snapshot()
+                    if not parent_review["is_valid"]:
+                        review_issues.append((record, parent_review["errors"]))
 
-                review_issues.append((record, ["父记录为提审中，但没有提审中的子记录"]))
+                    review_issues.append((record, ["父记录为提审中，但没有提审中的子记录"]))
                 continue
 
             if not current_record:
                 continue
 
-            if record.children:
+            if enable_record_review and record.children:
                 parent_review = record.review_parent_snapshot(current_record)
                 if not parent_review["is_valid"]:
                     review_issues.append((record, parent_review["errors"]))
@@ -90,9 +93,10 @@ class AppleMonitor:
                         )
                     )
 
-            current_review = current_record.review_current_submission()
-            if not current_review["is_valid"]:
-                review_issues.append((current_record, current_review["errors"]))
+            if enable_record_review:
+                current_review = current_record.review_current_submission()
+                if not current_review["is_valid"]:
+                    review_issues.append((current_record, current_review["errors"]))
 
             if not current_record.should_monitor_online():
                 log_info(
@@ -109,7 +113,13 @@ class AppleMonitor:
                 online_errors.append("缺少版本号，无法监控上线")
 
             if online_errors:
-                review_issues.append((current_record, online_errors))
+                if enable_record_review:
+                    review_issues.append((current_record, online_errors))
+                else:
+                    log_warning(
+                        f"{current_record.package_name or record.package_name} - "
+                        f"跳过 Apple 上线监控: {'；'.join(online_errors)}"
+                    )
                 continue
 
             monitor_candidates.append(
@@ -276,14 +286,20 @@ class AppleMonitor:
         )
         log_endgroup()
 
-        log_group("🧾 步骤 4: 解析当前记录并执行项目管理审查")
-        monitor_candidates, review_issues = self.evaluate_records(grouped_records)
+        log_group("🧾 步骤 4: 解析当前记录")
+        monitor_candidates, review_issues = self.evaluate_records(
+            grouped_records,
+            enable_record_review=settings.ENABLE_RECORD_REVIEW,
+        )
         active_review_groups = [record for record in grouped_records if record.is_in_review_scope()]
         log_info(f"当前审核中记录组: {len(active_review_groups)}")
-        log_info(f"项目管理审查告警: {len(review_issues)} 条")
+        if settings.ENABLE_RECORD_REVIEW:
+            log_info(f"项目管理审查告警: {len(review_issues)} 条")
+        else:
+            log_info("项目管理审查: 已关闭 (ENABLE_RECORD_REVIEW=false)")
         log_info(f"Apple 监控候选: {len(monitor_candidates)} 条")
 
-        if review_issues:
+        if settings.ENABLE_RECORD_REVIEW and review_issues:
             log_info("审查问题详情：")
             for idx, (record, errors) in enumerate(review_issues, 1):
                 log_warning(f"  [{idx}] {record.package_name} (Record ID: {record.record_id})")
@@ -291,7 +307,7 @@ class AppleMonitor:
                     log_warning(f"      - {error}")
         log_endgroup()
 
-        if review_issues:
+        if settings.ENABLE_RECORD_REVIEW and review_issues:
             log_group("⚠️  步骤 5: 发送项目管理审查告警")
             warning_chat_id = None
             for config in settings.FEISHU_NOTIFICATIONS:
@@ -306,6 +322,10 @@ class AppleMonitor:
                 )
             else:
                 log_warning("未找到配置 mention_all=True 的群聊，跳过发送告警")
+            log_endgroup()
+        elif not settings.ENABLE_RECORD_REVIEW:
+            log_group("⚠️  步骤 5: 跳过项目管理审查告警")
+            log_info("ENABLE_RECORD_REVIEW=false，未收集或发送项目管理审查告警")
             log_endgroup()
 
         log_group("🛠️ 步骤 5.5: 自动修正父记录快照")
@@ -377,7 +397,10 @@ class AppleMonitor:
 
         log_group("📊 任务执行总结")
         log_info(f"总共读取主记录组: {len(grouped_records)} 个")
-        log_info(f"项目管理审查告警: {len(review_issues)} 条")
+        if settings.ENABLE_RECORD_REVIEW:
+            log_info(f"项目管理审查告警: {len(review_issues)} 条")
+        else:
+            log_info("项目管理审查: 已关闭")
         log_info(f"Apple 监控候选: {len(monitor_candidates)} 个")
         log_info(f"成功上线: {success_count} 个")
         log_info(f"等待上线: {waiting_count} 个")

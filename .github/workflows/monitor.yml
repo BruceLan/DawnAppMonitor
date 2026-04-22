@@ -35,6 +35,7 @@ jobs:
           FEISHU_CHAT_ID_TEAM: ${{ secrets.FEISHU_CHAT_ID_TEAM }}
           FEISHU_MENTION_USERS: ${{ secrets.FEISHU_MENTION_USERS }}
           FEISHU_MESSAGE_PREFIX: ${{ secrets.FEISHU_MESSAGE_PREFIX }}
+          ENABLE_RECORD_REVIEW: ${{ secrets.ENABLE_RECORD_REVIEW }}
         run: |
           python monitor_apple.py
       
