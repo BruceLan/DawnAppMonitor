@@ -352,9 +352,13 @@ class AppleMonitor:
         current_timestamp = int(datetime.now().timestamp() * 1000)
         success_count = 0
         waiting_count = 0
+        status_by_apple_id = self.apple_service.query_app_statuses(
+            [candidate.apple_id for candidate in monitor_candidates],
+            verbose=False,
+        ) or {}
 
         for candidate in monitor_candidates:
-            app_status = self.apple_service.query_app_status(candidate.apple_id, verbose=False)
+            app_status = status_by_apple_id.get(candidate.apple_id)
 
             is_version_online = False
             if app_status and app_status["is_online"]:
