@@ -1,9 +1,9 @@
 name: Apple App Monitor
 
 on:
-  # 定时执行：每小时执行一次
+  # 定时执行：每半小时执行一次
   schedule:
-    - cron: '7 * * * *'  # 每小时的第 7 分钟执行
+    - cron: '7,37 * * * *'  # 每小时的第 7 分钟和 37 分钟执行
   
   # 支持手动触发
   workflow_dispatch:

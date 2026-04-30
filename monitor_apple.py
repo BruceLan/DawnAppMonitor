@@ -352,12 +352,30 @@ class AppleMonitor:
         current_timestamp = int(datetime.now().timestamp() * 1000)
         success_count = 0
         waiting_count = 0
-        status_by_apple_id = self.apple_service.query_app_statuses(
+        query_failed_count = 0
+        lookup_result = self.apple_service.query_app_statuses_with_meta(
             [candidate.apple_id for candidate in monitor_candidates],
             verbose=False,
-        ) or {}
+        )
+        status_by_apple_id = lookup_result.status_by_apple_id
+        failed_lookup_ids = set(lookup_result.failed_apple_ids)
+
+        log_info(
+            f"去重后 Apple ID: {len(status_by_apple_id)} 个，分 {lookup_result.total_batches} 批查询"
+        )
+        log_info(f"查询成功批次: {lookup_result.successful_batches}")
+        if lookup_result.failed_batches:
+            log_warning(f"查询失败批次: {lookup_result.failed_batches}")
 
         for candidate in monitor_candidates:
+            if candidate.apple_id in failed_lookup_ids:
+                log_warning(
+                    f"{candidate.parent_record.package_name} - Apple 状态查询失败，跳过本轮判定"
+                )
+                log_warning(f"  🆔 Apple ID: {candidate.apple_id}")
+                query_failed_count += 1
+                continue
+
             app_status = status_by_apple_id.get(candidate.apple_id)
 
             is_version_online = False
@@ -406,8 +424,12 @@ class AppleMonitor:
         else:
             log_info("项目管理审查: 已关闭")
         log_info(f"Apple 监控候选: {len(monitor_candidates)} 个")
+        log_info(f"Apple 查询批次: {lookup_result.total_batches}")
+        log_info(f"Apple 查询成功批次: {lookup_result.successful_batches}")
+        log_info(f"Apple 查询失败批次: {lookup_result.failed_batches}")
         log_info(f"成功上线: {success_count} 个")
         log_info(f"等待上线: {waiting_count} 个")
+        log_info(f"查询失败: {query_failed_count} 个")
         log_info(f"完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         log_endgroup()
 
