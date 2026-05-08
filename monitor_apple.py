@@ -413,6 +413,16 @@ class AppleMonitor:
                 log_info(f"{candidate.parent_record.package_name} - 指定版本未上线")
                 log_info(f"  📦 当前监控版本: {candidate.version}")
                 log_info(f"  🆔 Apple ID: {candidate.apple_id}")
+                if not app_status or not app_status["is_online"]:
+                    log_info("  ❓ 原因: Apple Lookup 未返回该 Apple ID 的可用结果")
+                else:
+                    log_info(f"  📱 应用名称: {app_status['track_name']}")
+                    log_info(f"  🏪 商店版本: {app_status['version']}")
+                    log_info(f"  📅 发布日期: {app_status['release_date']}")
+                    log_info(f"  🔄 当前版本发布日期: {app_status['current_version_release_date']}")
+                    log_info("  ❓ 原因: 已查到应用，但商店版本与当前监控版本不一致")
+                    if app_status.get("track_view_url"):
+                        log_info(f"  🔗 应用链接: {app_status['track_view_url']}")
                 waiting_count += 1
 
         log_endgroup()

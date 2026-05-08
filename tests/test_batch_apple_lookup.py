@@ -83,6 +83,35 @@ class AppleStoreServiceBatchLookupTests(unittest.TestCase):
             second_call.kwargs["params"],
         )
 
+    @patch("services.apple_service.log_info")
+    @patch("services.apple_service.requests.get")
+    def test_query_app_statuses_with_meta_logs_raw_lookup_response_on_success(
+        self, mock_get, mock_log_info
+    ):
+        mock_get.return_value = FakeResponse(
+            {
+                "resultCount": 1,
+                "results": [
+                    {
+                        "trackId": 123,
+                        "version": "1.2.3",
+                        "trackName": "Demo App",
+                        "releaseDate": "2026-04-29T00:00:00Z",
+                        "currentVersionReleaseDate": "2026-04-29T00:00:00Z",
+                        "bundleId": "com.demo.app",
+                        "trackViewUrl": "https://apps.apple.com/app/id123",
+                    }
+                ],
+            }
+        )
+
+        service = AppleStoreService()
+        result = service.query_app_statuses_with_meta(["123"])
+
+        self.assertEqual(1, result.successful_batches)
+        self.assertTrue(
+            any("原始响应" in str(call.args[0]) and "Demo App" in str(call.args[0]) for call in mock_log_info.call_args_list)
+        )
     @patch("services.apple_service.time.sleep")
     @patch("services.apple_service.requests.get")
     def test_query_app_statuses_with_meta_retries_failed_batch_and_keeps_successful_batches(
@@ -241,6 +270,62 @@ class AppleMonitorBatchLookupTests(unittest.TestCase):
             any("指定版本未上线" in str(call.args[0]) for call in mock_log_info.call_args_list)
         )
 
+    @patch("monitor_apple.parse_wiki_url", return_value=("wiki-token", "table-id", "view-id"))
+    def test_run_logs_store_version_when_lookup_result_does_not_match_monitored_version(self, _mock_parse):
+        record_waiting = ApplePackageRecord(
+            record_id="record-waiting",
+            package_name="Demo App B",
+            package_status="提审中",
+            version="1.2.3",
+            stage="开发",
+            apple_id="123",
+        )
+
+        feishu_service = Mock()
+        feishu_service.get_app_token_from_wiki.return_value = "app-token"
+        feishu_service.test_connection.return_value = True
+        feishu_service.get_grouped_records.return_value = [record_waiting]
+        feishu_service.update_record_fields.return_value = True
+
+        feishu_messenger = Mock()
+        apple_service = Mock()
+        apple_service.query_app_statuses_with_meta.return_value = AppleLookupResult(
+            status_by_apple_id={
+                "123": {
+                    "is_online": True,
+                    "version": "1.2.4",
+                    "track_name": "Demo App B",
+                    "release_date": "2026-04-29T00:00:00Z",
+                    "current_version_release_date": "2026-04-29T00:00:00Z",
+                    "bundle_id": "com.demo.app.b",
+                    "track_view_url": "https://apps.apple.com/app/id123",
+                }
+            },
+            failed_apple_ids=[],
+            total_batches=1,
+            successful_batches=1,
+            failed_batches=0,
+        )
+
+        monitor = AppleMonitor(
+            feishu_service=feishu_service,
+            feishu_messenger=feishu_messenger,
+            apple_service=apple_service,
+        )
+
+        with patch.object(monitor_apple.settings, "validate", return_value=True), patch.object(
+            monitor_apple.settings, "FEISHU_WIKI_URL", "https://example.com/wiki"
+        ), patch.object(monitor_apple.settings, "FEISHU_NOTIFICATIONS", []), patch.object(
+            monitor_apple.settings, "ENABLE_RECORD_REVIEW", False
+        ), patch("monitor_apple.log_info") as mock_log_info:
+            monitor.run()
+
+        self.assertTrue(
+            any("商店版本" in str(call.args[0]) and "1.2.4" in str(call.args[0]) for call in mock_log_info.call_args_list)
+        )
+        self.assertTrue(
+            any("当前监控版本" in str(call.args[0]) and "1.2.3" in str(call.args[0]) for call in mock_log_info.call_args_list)
+        )
 
 if __name__ == "__main__":
     unittest.main()

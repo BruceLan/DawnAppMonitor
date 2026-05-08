@@ -65,6 +65,17 @@ class AppleStoreService:
             return False
         return True
 
+    @staticmethod
+    def _format_lookup_payload(data: Dict[str, Any]) -> str:
+        return json.dumps(data, ensure_ascii=False, sort_keys=True)
+
+    def _log_lookup_batch_response(
+        self, batch_index: int, total_batches: int, data: Dict[str, Any]
+    ) -> None:
+        log_info(
+            f"[Apple Lookup] 第 {batch_index}/{total_batches} 批原始响应: "
+            f"{self._format_lookup_payload(data)}"
+        )
     def _request_lookup_batch(
         self,
         batch_apple_ids: List[str],
@@ -88,7 +99,9 @@ class AppleStoreService:
 
                 response = requests.get(self.api_url, params=params, timeout=10)
                 response.raise_for_status()
-                return response.json()
+                data = response.json()
+                self._log_lookup_batch_response(batch_index, total_batches, data)
+                return data
             except requests.exceptions.RequestException as error:
                 if attempt >= self.LOOKUP_MAX_RETRIES or not self._should_retry_request_error(error):
                     raise
@@ -100,7 +113,6 @@ class AppleStoreService:
                 log_warning(f"  错误: {str(error)}")
                 log_info(f"  {delay} 秒后重试")
                 time.sleep(delay)
-
         raise RuntimeError("unreachable")
 
     def query_app_statuses_with_meta(
