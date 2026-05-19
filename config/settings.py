@@ -20,6 +20,7 @@ class Settings:
         self.FEISHU_APP_ID = os.getenv("FEISHU_APP_ID")
         self.FEISHU_APP_SECRET = os.getenv("FEISHU_APP_SECRET")
         self.FEISHU_WIKI_URL = os.getenv("FEISHU_WIKI_URL")
+        self.AD_DELIVERY_WIKI_URL = os.getenv("AD_DELIVERY_WIKI_URL")
         self.FEISHU_MESSAGE_PREFIX = os.getenv("FEISHU_MESSAGE_PREFIX", "").strip()
         self.ENABLE_RECORD_REVIEW = self._get_bool_env("ENABLE_RECORD_REVIEW", False)
 

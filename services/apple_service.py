@@ -200,6 +200,18 @@ class AppleStoreService:
         """兼容旧接口：只返回按 Apple ID 建立的状态映射"""
         return self.query_app_statuses_with_meta(apple_ids, verbose=verbose).status_by_apple_id
 
+    def lookup_raw(self, apple_id: str | int, verbose: bool = False) -> Dict[str, Any]:
+        """查询单个 Apple ID 的原始 Lookup API 响应"""
+        normalized_id = str(apple_id).strip()
+        if not normalized_id:
+            return {"resultCount": 0, "results": []}
+        return self._request_lookup_batch(
+            batch_apple_ids=[normalized_id],
+            batch_index=1,
+            total_batches=1,
+            verbose=verbose,
+        )
+
     def query_app_status(self, apple_id: int, verbose: bool = False) -> Optional[Dict[str, Any]]:
         """
         使用 Apple Lookup API (iTunes Search API) 查询应用状态

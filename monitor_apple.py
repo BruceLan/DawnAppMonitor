@@ -7,7 +7,9 @@ from datetime import datetime
 from typing import List, Optional, Tuple
 
 from config.settings import settings
+from models.delivery import ApprovedDeliveryItem
 from models.record import ApplePackageRecord
+from services.ad_delivery_sync import AdDeliverySyncService
 from services.apple_service import AppleStoreService
 from services.feishu_messenger import FeishuMessenger
 from services.feishu_service import FeishuBitableService
@@ -41,10 +43,14 @@ class AppleMonitor:
         feishu_service: FeishuBitableService,
         feishu_messenger: FeishuMessenger,
         apple_service: AppleStoreService,
+        delivery_sync_service: Optional[AdDeliverySyncService] = None,
     ):
         self.feishu_service = feishu_service
         self.feishu_messenger = feishu_messenger
         self.apple_service = apple_service
+        self.delivery_sync_service = delivery_sync_service or AdDeliverySyncService(
+            feishu_service=feishu_service,
+        )
 
     def evaluate_records(
         self,
@@ -353,6 +359,7 @@ class AppleMonitor:
         success_count = 0
         waiting_count = 0
         query_failed_count = 0
+        approved_delivery_items: List[ApprovedDeliveryItem] = []
         lookup_result = self.apple_service.query_app_statuses_with_meta(
             [candidate.apple_id for candidate in monitor_candidates],
             verbose=False,
@@ -408,6 +415,16 @@ class AppleMonitor:
                     stage=candidate.current_record.stage or "未知",
                     version=candidate.version,
                 )
+                candidate.current_record.package_status = "已发布"
+                candidate.current_record.approval_time = current_timestamp
+                approved_delivery_items.append(
+                    ApprovedDeliveryItem(
+                        parent_record=candidate.parent_record,
+                        current_record=candidate.current_record,
+                        apple_id=candidate.apple_id,
+                        app_status=app_status,
+                    )
+                )
                 success_count += 1
             else:
                 log_info(f"{candidate.parent_record.package_name} - 指定版本未上线")
@@ -426,6 +443,15 @@ class AppleMonitor:
                 waiting_count += 1
 
         log_endgroup()
+
+        if settings.ENABLE_RECORD_REVIEW and settings.AD_DELIVERY_WIKI_URL:
+            log_group("📦 步骤 6.5: 同步可投放表")
+            synced_count = self.delivery_sync_service.sync_delivery_records(
+                approved_delivery_items,
+                settings.AD_DELIVERY_WIKI_URL,
+            )
+            log_info(f"可投放表同步完成: {synced_count} 条")
+            log_endgroup()
 
         log_group("📊 任务执行总结")
         log_info(f"总共读取主记录组: {len(grouped_records)} 个")

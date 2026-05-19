@@ -3,6 +3,7 @@ from requests.exceptions import Timeout
 from unittest.mock import Mock, patch
 
 import monitor_apple
+from models.delivery import ApprovedDeliveryItem
 from models.record import ApplePackageRecord
 from monitor_apple import AppleMonitor
 from services.apple_service import AppleLookupResult, AppleStoreService
@@ -20,6 +21,35 @@ class FakeResponse:
 
 
 class AppleStoreServiceBatchLookupTests(unittest.TestCase):
+    @patch("services.apple_service.log_info")
+    @patch("services.apple_service.requests.get")
+    def test_lookup_raw_returns_original_lookup_payload_for_single_apple_id(self, mock_get, _mock_log_info):
+        payload = {
+            "resultCount": 1,
+            "results": [
+                {
+                    "trackId": 123,
+                    "version": "1.2.3",
+                    "trackName": "Demo App",
+                    "bundleId": "com.demo.app",
+                }
+            ],
+        }
+        mock_get.return_value = FakeResponse(payload)
+
+        service = AppleStoreService()
+        lookup_raw = getattr(service, "lookup_raw", None)
+
+        self.assertIsNotNone(lookup_raw)
+        result = lookup_raw("123")
+
+        self.assertEqual(payload, result)
+        mock_get.assert_called_once_with(
+            service.api_url,
+            params={"id": "123", "country": "us"},
+            timeout=10,
+        )
+
     @patch("services.apple_service.requests.get")
     def test_query_app_statuses_deduplicates_ids_and_marks_missing_results_offline(self, mock_get):
         mock_get.return_value = FakeResponse(
@@ -154,6 +184,96 @@ class AppleStoreServiceBatchLookupTests(unittest.TestCase):
 
 
 class AppleMonitorBatchLookupTests(unittest.TestCase):
+    @patch("monitor_apple.parse_wiki_url", return_value=("wiki-token", "table-id", "view-id"))
+    def test_run_syncs_ad_delivery_only_for_successfully_online_candidates(self, _mock_parse):
+        record_online = ApplePackageRecord(
+            record_id="record-online",
+            package_name="Demo App A",
+            package_status="提审中",
+            version="1.2.3",
+            stage="A1+A2+H5+五图",
+            apple_id="123",
+            production_package_name="com.demo.app",
+            team="极光",
+        )
+        record_waiting = ApplePackageRecord(
+            record_id="record-waiting",
+            package_name="Demo App B",
+            package_status="提审中",
+            version="9.9.9",
+            stage="A1+A2+H5+五图",
+            apple_id="456",
+            production_package_name="com.demo.app.waiting",
+            team="极光",
+        )
+
+        feishu_service = Mock()
+        feishu_service.get_app_token_from_wiki.return_value = "app-token"
+        feishu_service.test_connection.return_value = True
+        feishu_service.get_grouped_records.return_value = [record_online, record_waiting]
+        feishu_service.update_record_fields.return_value = True
+
+        feishu_messenger = Mock()
+        delivery_sync_service = Mock()
+
+        apple_service = Mock()
+        apple_service.query_app_statuses_with_meta.return_value = AppleLookupResult(
+            status_by_apple_id={
+                "123": {
+                    "is_online": True,
+                    "version": "1.2.3",
+                    "track_name": "Demo App A",
+                    "release_date": "2026-04-29T00:00:00Z",
+                    "current_version_release_date": "2026-04-29T00:00:00Z",
+                    "bundle_id": "com.demo.app",
+                    "track_view_url": "https://apps.apple.com/app/id123",
+                },
+                "456": {
+                    "is_online": True,
+                    "version": "1.0.0",
+                    "track_name": "Demo App B",
+                    "release_date": "2026-04-29T00:00:00Z",
+                    "current_version_release_date": "2026-04-29T00:00:00Z",
+                    "bundle_id": "com.demo.app.waiting",
+                    "track_view_url": "https://apps.apple.com/app/id456",
+                },
+            },
+            failed_apple_ids=[],
+            total_batches=1,
+            successful_batches=1,
+            failed_batches=0,
+        )
+
+        monitor = AppleMonitor(
+            feishu_service=feishu_service,
+            feishu_messenger=feishu_messenger,
+            apple_service=apple_service,
+            delivery_sync_service=delivery_sync_service,
+        )
+
+        with patch.object(monitor_apple.settings, "validate", return_value=True), patch.object(
+            monitor_apple.settings, "FEISHU_WIKI_URL", "https://example.com/wiki"
+        ), patch.object(monitor_apple.settings, "FEISHU_NOTIFICATIONS", []), patch.object(
+            monitor_apple.settings, "ENABLE_RECORD_REVIEW", True
+        ), patch.object(
+            monitor_apple.settings, "AD_DELIVERY_WIKI_URL", "https://example.com/delivery"
+        ):
+            monitor.run()
+
+        apple_service.query_app_statuses_with_meta.assert_called_once_with(["123", "456"], verbose=False)
+        delivery_sync_service.sync_delivery_records.assert_called_once()
+        delivery_items, delivery_url = delivery_sync_service.sync_delivery_records.call_args.args
+        self.assertEqual("https://example.com/delivery", delivery_url)
+        self.assertEqual(1, len(delivery_items))
+        self.assertIsInstance(delivery_items[0], ApprovedDeliveryItem)
+        self.assertEqual(record_online, delivery_items[0].current_record)
+        self.assertEqual(record_online, delivery_items[0].parent_record)
+        self.assertEqual("123", delivery_items[0].apple_id)
+        self.assertEqual(
+            "https://apps.apple.com/app/id123",
+            delivery_items[0].app_status["track_view_url"],
+        )
+
     @patch("monitor_apple.parse_wiki_url", return_value=("wiki-token", "table-id", "view-id"))
     def test_run_uses_bulk_lookup_and_updates_only_matching_duplicate_apple_id(self, _mock_parse):
         record_online = ApplePackageRecord(

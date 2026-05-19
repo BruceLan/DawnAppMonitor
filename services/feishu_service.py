@@ -6,10 +6,17 @@ from typing import Any, Dict, List, Optional
 
 import lark_oapi as lark
 from lark_oapi.api.bitable.v1 import (
+    BatchCreateAppTableRecordRequest,
+    BatchCreateAppTableRecordRequestBody,
+    CreateAppTableFieldRequest,
+    CreateAppTableRecordRequest,
     ListAppTableRecordRequest,
+    ListAppTableFieldRequest,
     ListAppTableRequest,
     UpdateAppTableRecordRequest
 )
+from lark_oapi.api.bitable.v1.model.app_table_field import AppTableField
+from lark_oapi.api.bitable.v1.model.app_table_record import AppTableRecord
 from lark_oapi.api.wiki.v2.model.get_node_space_request import GetNodeSpaceRequest
 from models.record import ApplePackageRecord
 from utils.logger import log_error, log_info, log_warning
@@ -17,6 +24,8 @@ from utils.logger import log_error, log_info, log_warning
 
 class FeishuBitableService:
     """飞书多维表格服务类"""
+
+    BATCH_CREATE_MAX_RECORDS = 100
     
     def __init__(self, app_id: str, app_secret: str):
         """
@@ -166,6 +175,160 @@ class FeishuBitableService:
         
         return all_records
 
+    def list_fields(self, app_token: str, table_id: str) -> List[AppTableField]:
+        """读取表字段定义"""
+        fields: List[AppTableField] = []
+        page_token = None
+
+        while True:
+            request_builder = ListAppTableFieldRequest.builder() \
+                .app_token(app_token) \
+                .table_id(table_id) \
+                .page_size(500)
+
+            if page_token:
+                request_builder.page_token(page_token)
+
+            response = self.client.bitable.v1.app_table_field.list(request_builder.build())
+            if not response.success():
+                log_error(f"读取字段失败: {response.code}, {response.msg}")
+                break
+
+            items = response.data.items or []
+            fields.extend(items)
+
+            if not response.data.has_more:
+                break
+
+            page_token = response.data.page_token
+
+        return fields
+
+    def ensure_field(
+        self,
+        app_token: str,
+        table_id: str,
+        field_name: str,
+        field_type: int,
+        ui_type: Optional[str] = None,
+    ) -> Optional[str]:
+        """确保字段存在，不存在则创建"""
+        for field in self.list_fields(app_token=app_token, table_id=table_id):
+            if field.field_name == field_name:
+                return field.field_id
+
+        log_info(f"目标表缺少字段，准备创建: {field_name}")
+        try:
+            field_builder = AppTableField.builder() \
+                .field_name(field_name) \
+                .type(field_type)
+            if ui_type:
+                field_builder.ui_type(ui_type)
+
+            request = CreateAppTableFieldRequest.builder() \
+                .app_token(app_token) \
+                .table_id(table_id) \
+                .build()
+            request.request_body = field_builder.build()
+            request.body = request.request_body
+
+            response = self.client.bitable.v1.app_table_field.create(request)
+            if response.success():
+                created_field = response.data.field
+                log_info(f"字段创建成功: {field_name} ({created_field.field_id})")
+                return created_field.field_id
+
+            log_error(f"字段创建失败: {field_name}")
+            log_info(f"  错误码: {response.code}")
+            log_info(f"  错误信息: {response.msg}")
+            return None
+        except Exception as e:
+            log_error(f"字段创建异常: {field_name}, 错误: {str(e)}")
+            return None
+
+    def create_record(
+        self,
+        app_token: str,
+        table_id: str,
+        fields: Dict[str, Any],
+        user_id_type: str = "open_id",
+    ) -> Optional[str]:
+        """创建一条多维表格记录"""
+        try:
+            request = CreateAppTableRecordRequest.builder() \
+                .user_id_type(user_id_type) \
+                .app_token(app_token) \
+                .table_id(table_id) \
+                .build()
+
+            request.request_body = AppTableRecord.builder().fields(fields).build()
+            request.body = request.request_body
+
+            response = self.client.bitable.v1.app_table_record.create(request)
+            if response.success():
+                record_id = response.data.record.record_id
+                log_info(f"创建记录成功: Record ID {record_id}")
+                return record_id
+
+            log_error("创建记录失败")
+            log_info(f"  错误码: {response.code}")
+            log_info(f"  错误信息: {response.msg}")
+            return None
+        except Exception as e:
+            log_error(f"创建记录异常: {str(e)}")
+            return None
+
+    def batch_create_records(
+        self,
+        app_token: str,
+        table_id: str,
+        records: List[Dict[str, Any]],
+        user_id_type: str = "open_id",
+        batch_size: Optional[int] = None,
+    ) -> List[str]:
+        """批量创建多维表格记录，返回成功创建的 record_id 列表"""
+        created_record_ids: List[str] = []
+        if not records:
+            return created_record_ids
+
+        chunk_size = max(1, batch_size or self.BATCH_CREATE_MAX_RECORDS)
+        for start in range(0, len(records), chunk_size):
+            chunk = records[start:start + chunk_size]
+            try:
+                request = BatchCreateAppTableRecordRequest.builder() \
+                    .user_id_type(user_id_type) \
+                    .app_token(app_token) \
+                    .table_id(table_id) \
+                    .build()
+
+                request_body = BatchCreateAppTableRecordRequestBody.builder().records(
+                    [AppTableRecord.builder().fields(fields).build() for fields in chunk]
+                ).build()
+                request.request_body = request_body
+                request.body = request_body
+
+                response = self.client.bitable.v1.app_table_record.batch_create(request)
+                if response.success():
+                    chunk_record_ids = [
+                        record.record_id
+                        for record in (response.data.records or [])
+                        if getattr(record, "record_id", None)
+                    ]
+                    created_record_ids.extend(chunk_record_ids)
+                    log_info(
+                        f"批量创建记录成功: 第 {start // chunk_size + 1} 批，"
+                        f"请求 {len(chunk)} 条，成功 {len(chunk_record_ids)} 条"
+                    )
+                    continue
+
+                log_error("批量创建记录失败")
+                log_info(f"  错误码: {response.code}")
+                log_info(f"  错误信息: {response.msg}")
+            except Exception as e:
+                log_error(f"批量创建记录异常: {str(e)}")
+
+        return created_record_ids
+
     @staticmethod
     def _extract_parent_ids(fields: Dict[str, Any], parent_field: str, record_id: str) -> List[str]:
         """从父记录字段中提取父记录 ID"""
@@ -289,6 +452,7 @@ class FeishuBitableService:
         try:
             # 构建请求
             request = UpdateAppTableRecordRequest.builder() \
+                .user_id_type("open_id") \
                 .app_token(app_token) \
                 .table_id(table_id) \
                 .record_id(record_id) \
