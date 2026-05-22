@@ -64,7 +64,6 @@ class DeliverySyncTests(unittest.TestCase):
         item = self._build_item(apple_id="123")
         self.feishu_service.get_app_token_from_wiki.return_value = "delivery-app-token"
         self.feishu_service.get_all_records.return_value = []
-        self.feishu_service.ensure_field.return_value = "fld_lookup_url"
         self.feishu_service.batch_create_records.return_value = ["rec-1"]
 
         created_count = self.service.sync_delivery_records(
@@ -75,6 +74,7 @@ class DeliverySyncTests(unittest.TestCase):
         self.assertEqual(1, created_count)
         self.feishu_service.batch_create_records.assert_called_once()
         self.feishu_service.create_record.assert_not_called()
+        self.feishu_service.ensure_field.assert_not_called()
 
     def test_sync_delivery_records_batch_creates_multiple_new_rows_once(self):
         item_1 = self._build_item(apple_id="123", package_name="Demo App 1")
@@ -87,7 +87,6 @@ class DeliverySyncTests(unittest.TestCase):
         )
         self.feishu_service.get_app_token_from_wiki.return_value = "delivery-app-token"
         self.feishu_service.get_all_records.return_value = []
-        self.feishu_service.ensure_field.return_value = "fld_lookup_url"
         self.feishu_service.batch_create_records.return_value = ["rec-1", "rec-2"]
 
         created_count = self.service.sync_delivery_records(
@@ -106,6 +105,8 @@ class DeliverySyncTests(unittest.TestCase):
         self.assertEqual("456", call_kwargs["records"][1]["AppleId"])
         self.assertEqual("未投放", call_kwargs["records"][0]["投放状态"])
         self.assertEqual("未投放", call_kwargs["records"][1]["投放状态"])
+        self.assertNotIn("lookup接口url", call_kwargs["records"][0])
+        self.assertNotIn("lookup接口url", call_kwargs["records"][1])
 
     def test_sync_delivery_records_skips_existing_and_same_run_duplicate_apple_ids(self):
         new_item = self._build_item(apple_id="123", package_name="New App")
@@ -121,7 +122,6 @@ class DeliverySyncTests(unittest.TestCase):
                 },
             }
         ]
-        self.feishu_service.ensure_field.return_value = "fld_lookup_url"
         self.feishu_service.batch_create_records.return_value = ["rec-1", "rec-2"]
 
         created_count = self.service.sync_delivery_records(
@@ -147,7 +147,6 @@ class DeliverySyncTests(unittest.TestCase):
                 },
             }
         ]
-        self.feishu_service.ensure_field.return_value = "fld_lookup_url"
 
         created_count = self.service.sync_delivery_records(
             [normalized_existing_item],
@@ -165,7 +164,6 @@ class DeliverySyncTests(unittest.TestCase):
         item = self._build_item(apple_id="234", team="静界")
         self.feishu_service.get_app_token_from_wiki.return_value = "delivery-app-token"
         self.feishu_service.get_all_records.return_value = []
-        self.feishu_service.ensure_field.return_value = "fld_lookup_url"
         self.feishu_service.batch_create_records.return_value = ["rec-1"]
 
         created_count = self.service.sync_delivery_records(
@@ -177,6 +175,30 @@ class DeliverySyncTests(unittest.TestCase):
         self.feishu_service.batch_create_records.assert_called_once()
         records = self.feishu_service.batch_create_records.call_args.kwargs["records"]
         self.assertEqual("静界", records[0]["团队"])
+
+    def test_sync_delivery_records_strips_query_from_store_link(self):
+        item = self._build_item(
+            apple_id="345",
+            track_view_url="https://apps.apple.com/us/app/obex-makers-knitting/id6769326768?uo=4",
+        )
+        self.feishu_service.get_app_token_from_wiki.return_value = "delivery-app-token"
+        self.feishu_service.get_all_records.return_value = []
+        self.feishu_service.batch_create_records.return_value = ["rec-1"]
+
+        created_count = self.service.sync_delivery_records(
+            [item],
+            "https://example.com/wiki/node?table=tbl1&view=vew1",
+        )
+
+        self.assertEqual(1, created_count)
+        records = self.feishu_service.batch_create_records.call_args.kwargs["records"]
+        self.assertEqual(
+            {
+                "text": "https://apps.apple.com/us/app/obex-makers-knitting/id6769326768",
+                "link": "https://apps.apple.com/us/app/obex-makers-knitting/id6769326768",
+            },
+            records[0]["商店链接"],
+        )
 
 
 if __name__ == "__main__":

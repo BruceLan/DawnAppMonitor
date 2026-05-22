@@ -3,6 +3,7 @@
 """
 import re
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse, urlunparse
 
 from models.delivery import ApprovedDeliveryItem
 from models.record import ApplePackageRecord
@@ -13,8 +14,6 @@ from utils.url_parser import parse_wiki_url
 
 class AdDeliverySyncService:
     """把已确认上线的五图包同步到可投放表"""
-
-    LOOKUP_API_URL = "https://itunes.apple.com/lookup"
 
     def __init__(
         self,
@@ -57,6 +56,15 @@ class AdDeliverySyncService:
         if not url:
             return None
         return {"text": url, "link": url}
+
+    @staticmethod
+    def _normalize_store_url(url: Optional[str]) -> Optional[str]:
+        if not url:
+            return None
+        parsed = urlparse(url.strip())
+        if not parsed.scheme or not parsed.netloc:
+            return url.strip()
+        return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
 
     @staticmethod
     def _extract_adjust_app_token(ad_aj_info: Optional[str]) -> Optional[str]:
@@ -112,7 +120,6 @@ class AdDeliverySyncService:
     def _build_batch_fields(
         self,
         item: ApprovedDeliveryItem,
-        include_lookup_url: bool,
     ) -> Dict[str, object]:
         current_record = item.current_record
         parent_record = item.parent_record
@@ -140,14 +147,11 @@ class AdDeliverySyncService:
         if adjust_app_token:
             fields["Adjust信息"] = adjust_app_token
 
-        store_link = self._build_url_cell(item.app_status.get("track_view_url"))
+        store_link = self._build_url_cell(
+            self._normalize_store_url(item.app_status.get("track_view_url"))
+        )
         if store_link:
             fields["商店链接"] = store_link
-
-        if include_lookup_url:
-            fields["lookup接口url"] = self._build_url_cell(
-                f"{self.LOOKUP_API_URL}?id={item.apple_id}&country=us"
-            )
 
         return fields
 
@@ -167,14 +171,6 @@ class AdDeliverySyncService:
             log_warning("可投放表 app_token 获取失败，跳过同步")
             return 0
 
-        lookup_field_id = self.feishu_service.ensure_field(
-            app_token=app_token,
-            table_id=table_id,
-            field_name="lookup接口url",
-            field_type=15,
-            ui_type="Url",
-        )
-
         destination_records = self.feishu_service.get_all_records(
             app_token=app_token,
             table_id=table_id,
@@ -191,7 +187,7 @@ class AdDeliverySyncService:
             return 0
 
         batch_fields = [
-            self._build_batch_fields(item, include_lookup_url=lookup_field_id is not None)
+            self._build_batch_fields(item)
             for item in new_items
         ]
         created_record_ids = self.feishu_service.batch_create_records(
