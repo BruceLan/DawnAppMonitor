@@ -1,6 +1,7 @@
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
+from models.record import ApplePackageRecord
 from services.feishu_service import FeishuBitableService
 
 
@@ -44,6 +45,31 @@ class FeishuBitableServiceTests(unittest.TestCase):
         self.assertEqual("table-id", first_request.table_id)
         self.assertEqual(2, len(first_request.request_body.records))
         self.assertEqual(1, len(second_request.request_body.records))
+
+    @patch("services.feishu_service.log_info")
+    def test_get_grouped_records_logs_only_summary_not_each_parent_record(self, mock_log_info):
+        service = FeishuBitableService(app_id="app-id", app_secret="app-secret")
+        service.get_all_records = Mock(return_value=[{"record_id": "rec-1", "fields": {}}])
+        service.build_record_groups = Mock(
+            return_value=[
+                ApplePackageRecord(record_id="rec-parent-1", package_name="Parent A"),
+                ApplePackageRecord(record_id="rec-parent-2", package_name="Parent B"),
+            ]
+        )
+
+        grouped_records = service.get_grouped_records(
+            app_token="app-token",
+            table_id="table-id",
+            view_id="view-id",
+        )
+
+        self.assertEqual(2, len(grouped_records))
+        self.assertTrue(
+            any("构建完成，共找到 2 个主记录组" in str(call.args[0]) for call in mock_log_info.call_args_list)
+        )
+        self.assertFalse(
+            any("主记录 " in str(call.args[0]) for call in mock_log_info.call_args_list)
+        )
 
 
 if __name__ == "__main__":

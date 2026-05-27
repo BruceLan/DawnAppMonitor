@@ -209,7 +209,6 @@ class AppleMonitorBatchLookupTests(unittest.TestCase):
 
         feishu_service = Mock()
         feishu_service.get_app_token_from_wiki.return_value = "app-token"
-        feishu_service.test_connection.return_value = True
         feishu_service.get_grouped_records.return_value = [record_online, record_waiting]
         feishu_service.update_record_fields.return_value = True
 
@@ -261,6 +260,7 @@ class AppleMonitorBatchLookupTests(unittest.TestCase):
             monitor.run()
 
         apple_service.query_app_statuses_with_meta.assert_called_once_with(["123", "456"], verbose=False)
+        feishu_service.test_connection.assert_not_called()
         delivery_sync_service.sync_delivery_records.assert_called_once()
         delivery_items, delivery_url = delivery_sync_service.sync_delivery_records.call_args.args
         self.assertEqual("https://example.com/delivery", delivery_url)
@@ -295,7 +295,6 @@ class AppleMonitorBatchLookupTests(unittest.TestCase):
 
         feishu_service = Mock()
         feishu_service.get_app_token_from_wiki.return_value = "app-token"
-        feishu_service.test_connection.return_value = True
         feishu_service.get_grouped_records.return_value = [record_online, record_waiting]
         feishu_service.update_record_fields.return_value = True
 
@@ -334,6 +333,7 @@ class AppleMonitorBatchLookupTests(unittest.TestCase):
             monitor.run()
 
         apple_service.query_app_statuses_with_meta.assert_called_once_with(["123", "123"], verbose=False)
+        feishu_service.test_connection.assert_not_called()
         feishu_service.update_record_fields.assert_called_once()
         update_kwargs = feishu_service.update_record_fields.call_args.kwargs
         self.assertEqual("record-online", update_kwargs["record_id"])
@@ -353,7 +353,6 @@ class AppleMonitorBatchLookupTests(unittest.TestCase):
 
         feishu_service = Mock()
         feishu_service.get_app_token_from_wiki.return_value = "app-token"
-        feishu_service.test_connection.return_value = True
         feishu_service.get_grouped_records.return_value = [record_failed]
         feishu_service.update_record_fields.return_value = True
 
@@ -381,6 +380,7 @@ class AppleMonitorBatchLookupTests(unittest.TestCase):
             monitor.run()
 
         apple_service.query_app_statuses_with_meta.assert_called_once_with(["123"], verbose=False)
+        feishu_service.test_connection.assert_not_called()
         feishu_service.update_record_fields.assert_not_called()
         feishu_messenger.send_notifications.assert_not_called()
         self.assertTrue(
@@ -403,7 +403,6 @@ class AppleMonitorBatchLookupTests(unittest.TestCase):
 
         feishu_service = Mock()
         feishu_service.get_app_token_from_wiki.return_value = "app-token"
-        feishu_service.test_connection.return_value = True
         feishu_service.get_grouped_records.return_value = [record_waiting]
         feishu_service.update_record_fields.return_value = True
 
@@ -446,6 +445,7 @@ class AppleMonitorBatchLookupTests(unittest.TestCase):
         self.assertTrue(
             any("当前监控版本" in str(call.args[0]) and "1.2.3" in str(call.args[0]) for call in mock_log_info.call_args_list)
         )
+        feishu_service.test_connection.assert_not_called()
 
 if __name__ == "__main__":
     unittest.main()

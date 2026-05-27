@@ -272,14 +272,7 @@ class AppleMonitor:
             return []
         log_endgroup()
 
-        log_group("🔌 步骤 2: 测试连接")
-        if not self.feishu_service.test_connection(app_token):
-            log_error("连接失败，请检查 app_token 是否正确")
-            log_endgroup()
-            return []
-        log_endgroup()
-
-        log_group("📊 步骤 3: 读取并构建记录分组")
+        log_group("📊 步骤 2: 读取并构建记录分组")
         if not table_id:
             log_error("未找到 table_id，无法继续")
             log_endgroup()
@@ -292,7 +285,7 @@ class AppleMonitor:
         )
         log_endgroup()
 
-        log_group("🧾 步骤 4: 解析当前记录")
+        log_group("🧾 步骤 3: 解析当前记录")
         monitor_candidates, review_issues = self.evaluate_records(
             grouped_records,
             enable_record_review=settings.ENABLE_RECORD_REVIEW,
@@ -314,7 +307,7 @@ class AppleMonitor:
         log_endgroup()
 
         if settings.ENABLE_RECORD_REVIEW and review_issues:
-            log_group("⚠️  步骤 5: 发送项目管理审查告警")
+            log_group("⚠️  步骤 4: 发送项目管理审查告警")
             warning_chat_id = None
             for config in settings.FEISHU_NOTIFICATIONS:
                 if config.get("mention_all"):
@@ -330,11 +323,11 @@ class AppleMonitor:
                 log_warning("未找到配置 mention_all=True 的群聊，跳过发送告警")
             log_endgroup()
         elif not settings.ENABLE_RECORD_REVIEW:
-            log_group("⚠️  步骤 5: 跳过项目管理审查告警")
+            log_group("⚠️  步骤 4: 跳过项目管理审查告警")
             log_info("ENABLE_RECORD_REVIEW=false，未收集或发送项目管理审查告警")
             log_endgroup()
 
-        log_group("🛠️ 步骤 5.5: 自动修正父记录快照")
+        log_group("🛠️ 步骤 4.5: 自动修正父记录快照")
         parent_fix_count = 0
         for record in grouped_records:
             if not record.is_in_review_scope() or not record.children:
@@ -352,7 +345,7 @@ class AppleMonitor:
         log_info(f"已自动修正父记录快照: {parent_fix_count} 条")
         log_endgroup()
 
-        log_group("🍎 步骤 6: 查询 Apple Store 状态并更新")
+        log_group("🍎 步骤 5: 查询 Apple Store 状态并更新")
         log_info(f"只处理 Apple 监控候选（共 {len(monitor_candidates)} 个）")
 
         current_timestamp = int(datetime.now().timestamp() * 1000)
@@ -445,7 +438,7 @@ class AppleMonitor:
         log_endgroup()
 
         if settings.ENABLE_RECORD_REVIEW and settings.AD_DELIVERY_WIKI_URL:
-            log_group("📦 步骤 6.5: 同步可投放表")
+            log_group("📦 步骤 5.5: 同步可投放表")
             synced_count = self.delivery_sync_service.sync_delivery_records(
                 approved_delivery_items,
                 settings.AD_DELIVERY_WIKI_URL,

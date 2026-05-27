@@ -423,11 +423,6 @@ class FeishuBitableService:
 
         grouped_records = self.build_record_groups(all_raw_records, parent_field=parent_field)
         log_info(f"构建完成，共找到 {len(grouped_records)} 个主记录组")
-        for grouped_record in grouped_records:
-            log_info(
-                f"  主记录 {grouped_record.package_name} (ID: {grouped_record.record_id}) "
-                f"有 {len(grouped_record.children)} 条子记录"
-            )
         return grouped_records
 
     def update_record_fields(
