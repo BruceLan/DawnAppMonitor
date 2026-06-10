@@ -21,9 +21,12 @@ class FakeResponse:
 
 
 class AppleStoreServiceBatchLookupTests(unittest.TestCase):
+    @patch("services.apple_service.time.time", return_value=1234567890)
     @patch("services.apple_service.log_info")
     @patch("services.apple_service.requests.get")
-    def test_lookup_raw_returns_original_lookup_payload_for_single_apple_id(self, mock_get, _mock_log_info):
+    def test_lookup_raw_returns_original_lookup_payload_for_single_apple_id(
+        self, mock_get, _mock_log_info, _mock_time
+    ):
         payload = {
             "resultCount": 1,
             "results": [
@@ -46,12 +49,15 @@ class AppleStoreServiceBatchLookupTests(unittest.TestCase):
         self.assertEqual(payload, result)
         mock_get.assert_called_once_with(
             service.api_url,
-            params={"id": "123", "country": "us"},
+            params={"id": "123", "country": "us", "_ts": "1234567890000"},
             timeout=10,
         )
 
+    @patch("services.apple_service.time.time", return_value=1234567890)
     @patch("services.apple_service.requests.get")
-    def test_query_app_statuses_deduplicates_ids_and_marks_missing_results_offline(self, mock_get):
+    def test_query_app_statuses_deduplicates_ids_and_marks_missing_results_offline(
+        self, mock_get, _mock_time
+    ):
         mock_get.return_value = FakeResponse(
             {
                 "resultCount": 1,
@@ -75,7 +81,7 @@ class AppleStoreServiceBatchLookupTests(unittest.TestCase):
 
         mock_get.assert_called_once_with(
             service.api_url,
-            params={"id": "123,456", "country": "us"},
+            params={"id": "123,456", "country": "us", "_ts": "1234567890000"},
             timeout=10,
         )
         self.assertTrue(statuses["123"]["is_online"])
@@ -83,8 +89,9 @@ class AppleStoreServiceBatchLookupTests(unittest.TestCase):
         self.assertFalse(statuses["456"]["is_online"])
         self.assertIsNone(statuses["456"]["version"])
 
+    @patch("services.apple_service.time.time", return_value=1234567890)
     @patch("services.apple_service.requests.get")
-    def test_query_app_statuses_splits_requests_in_chunks_of_50(self, mock_get):
+    def test_query_app_statuses_splits_requests_in_chunks_of_50(self, mock_get, _mock_time):
         mock_get.side_effect = [
             FakeResponse({"resultCount": 0, "results": []}),
             FakeResponse({"resultCount": 0, "results": []}),
@@ -102,6 +109,7 @@ class AppleStoreServiceBatchLookupTests(unittest.TestCase):
             {
                 "id": ",".join(str(index) for index in range(1, 51)),
                 "country": "us",
+                "_ts": "1234567890000",
             },
             first_call.kwargs["params"],
         )
@@ -109,6 +117,7 @@ class AppleStoreServiceBatchLookupTests(unittest.TestCase):
             {
                 "id": "51",
                 "country": "us",
+                "_ts": "1234567890000",
             },
             second_call.kwargs["params"],
         )

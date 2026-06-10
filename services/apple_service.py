@@ -83,12 +83,12 @@ class AppleStoreService:
         total_batches: int,
         verbose: bool = False,
     ) -> Dict[str, Any]:
-        params = {
-            "id": ",".join(batch_apple_ids),
-            "country": "us",
-        }
-
         for attempt in range(self.LOOKUP_MAX_RETRIES + 1):
+            params = {
+                "id": ",".join(batch_apple_ids),
+                "country": "us",
+                "_ts": str(int(time.time() * 1000)),
+            }
             try:
                 log_info(
                     f"[Apple Lookup] 第 {batch_index}/{total_batches} 批，本批 {len(batch_apple_ids)} 个 ID"
